@@ -5,3 +5,4 @@ This branch implements LUT DIY by building a visual LUT adjuster that can also i
 
 在“sony-a5100-film-studio”项目的基础上，本skill赋予人们自定义自己的lut并导入现有film studio安装包的能力。
 本分支通过搭建一个可视化lut调节器，并同时可以导入本地图片进行提前预览，并导出自定义lut至现有“film studio”apk上来实现lut的diy。该功能已经被集成为可直接被ai调用的skill工具——“camera-lut-studio”
+使用时直接把“camera-lut-studio”作为skill装入AI即可
