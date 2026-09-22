@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>a6000 色彩实验室 · Color Lab</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --line:#30363d;
+    --fg:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --accent2:#3fb950;
+    --warn:#d29922; --bad:#f85149; --r:#ff5c5c; --g:#4ade80; --b:#60a5fa;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--fg);
+    font:13px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  header{
+    flex:0 0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);
+  }
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.3px}
+  header .model{
+    font-size:11px;color:var(--muted);font-family:ui-monospace,Consolas,monospace;
+    background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:3px 8px;
+  }
+  header .spacer{flex:1}
+  button,select,input[type=text],input[type=number]{
+    font:inherit;color:var(--fg);background:var(--panel2);
+    border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;
+  }
+  button:hover,select:hover{border-color:#4b5563;background:#22272e}
+  button.primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
+  button.primary:hover{background:#2b7cf0}
+  button.ghost{background:transparent}
+  input[type=text],input[type=number]{cursor:text;width:100%}
+  input[type=number]{text-align:right;font-family:ui-monospace,Consolas,monospace}
+  main{flex:1;display:flex;min-height:0}
+  aside{
+    flex:0 0 348px;overflow-y:auto;background:var(--panel);
+    border-right:1px solid var(--line);padding:12px;
+  }
+  aside::-webkit-scrollbar{width:9px}
+  aside::-webkit-scrollbar-thumb{background:#333a44;border-radius:5px}
+  section.card{border:1px solid var(--line);border-radius:8px;margin-bottom:10px;background:var(--panel2)}
+  section.card>h2{
+    margin:0;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.6px;padding:8px 10px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:8px;
+  }
+  section.card>h2 .tag{margin-left:auto;font-size:10px;text-transform:none;color:var(--muted);font-weight:400}
+  .body{padding:10px}
+  .row{display:flex;gap:6px;align-items:center;margin-bottom:7px}
+  .row:last-child{margin-bottom:0}
+  .row label{flex:0 0 auto;color:var(--muted);font-size:11px}
+  .row .grow{flex:1}
+  .hint{color:var(--muted);font-size:11px;line-height:1.45;margin:6px 0 0}
+  /* matrix */
+  .mtx{display:grid;grid-template-columns:auto 1fr 1fr 1fr auto;gap:5px 6px;align-items:center}
+  .mtx .head{font-size:10px;color:var(--muted);text-align:center;font-family:ui-monospace,monospace}
+  .mtx .rl{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace}
+  .cell{display:flex;flex-direction:column;gap:2px}
+  .cell input[type=range]{width:100%;margin:0;height:14px;accent-color:var(--accent)}
+  .cell input[type=number]{padding:1px 4px;font-size:11px;border-radius:4px}
+  .cell.locked input{opacity:.5;pointer-events:none}
+  .sum{font-size:10px;font-family:ui-monospace,monospace;color:var(--muted);text-align:right;min-width:52px}
+  .sum.ok{color:var(--accent2)}
+  .sum.no{color:var(--warn)}
+  /* strength */
+  .chips{display:flex;gap:5px;margin-top:7px}
+  .chip{
+    flex:1;text-align:center;padding:4px 0;border:1px solid var(--line);border-radius:5px;
+    font-size:11px;cursor:pointer;background:var(--panel);user-select:none;
+  }
+  .chip:hover{border-color:#4b5563}
+  .chip.on{background:#1f6feb;border-color:#1f6feb;color:#fff}
+  input[type=range]{width:100%;accent-color:var(--accent);margin:2px 0}
+  /* stage */
+  #stage{flex:1;display:flex;flex-direction:column;min-width:0;background:#0b0f14}
+  .toolbar{
+    flex:0 0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel);
+  }
+  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:transparent;padding:5px 11px;font-size:12px}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button.on{background:#1f6feb;color:#fff}
+  .toolbar .stat{margin-left:auto;font-size:11px;color:var(--muted);font-family:ui-monospace,monospace}
+  #canvasWrap{flex:1;display:flex;align-items:center;justify-content:center;padding:14px;min-height:0;position:relative}
+  #previewCanvas{
+    max-width:100%;max-height:100%;border-radius:6px;border:1px solid var(--line);
+    box-shadow:0 8px 28px rgba(0,0,0,.5);cursor:crosshair;touch-action:none;
+  }
+  .drop{
+    position:absolute;inset:14px;border:2px dashed #3d5a80;border-radius:10px;
+    display:none;align-items:center;justify-content:center;color:var(--accent);
+    background:rgba(31,111,235,.08);font-size:15px;pointer-events:none;
+  }
+  .drop.on{display:flex}
+  .scope{flex:0 0 auto;padding:0 14px 12px;display:flex;gap:10px;flex-wrap:wrap}
+  .scope figure{margin:0;flex:1;min-width:280px}
+  .scope figcaption{font-size:11px;color:var(--muted);margin-bottom:4px}
+  .scope canvas{width:100%;height:118px;display:block;background:var(--panel);
+    border:1px solid var(--line);border-radius:6px}
+  /* validation */
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:11px;
+      font-family:ui-monospace,Consolas,monospace}
+  .kv .k{color:var(--muted)}
+  .ok{color:var(--accent2)} .no{color:var(--bad)} .wr{color:var(--warn)}
+  /* drawer */
+  #scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:40}
+  #scrim.on{display:block}
+  #drawer{
+    position:fixed;top:0;right:0;bottom:0;width:560px;max-width:92vw;z-index:50;
+    background:var(--panel);border-left:1px solid var(--line);
+    transform:translateX(102%);transition:transform .22s ease;
+    display:flex;flex-direction:column;
+  }
+  #drawer.on{transform:none}
+  #drawer h3{margin:0;padding:12px 14px;font-size:13px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:8px}
+  #drawer h3 .spacer{flex:1}
+  #drawer .dbody{flex:1;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-height:0}
+  #drawer textarea{
+    flex:1;min-height:200px;resize:none;background:#0b0f14;color:var(--fg);
+    border:1px solid var(--line);border-radius:7px;padding:10px;
+    font:11px/1.5 ui-monospace,Consolas,monospace;white-space:pre;
+  }
+  #drawer .drow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #drawer .pickwrap{width:100%;display:flex;flex-direction:column;gap:8px}
+  #drawer .picklist{max-height:200px;overflow:auto;border:1px solid var(--line);
+    border-radius:7px;padding:6px 8px;display:flex;flex-direction:column;gap:2px;background:var(--bg)}
+  #drawer .picklist label{display:flex;align-items:center;gap:7px;font-size:12px;
+    cursor:pointer;padding:3px 2px;border-radius:4px}
+  #drawer .picklist label:hover{background:var(--panel2)}
+  #drawer .picklist input{width:auto;margin:0;flex:0 0 auto}
+  #drawer .picklist .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #drawer .picktag{font-size:10px;font-family:ui-monospace,Consolas,monospace;color:var(--muted);
+    border:1px solid var(--line);border-radius:3px;padding:0 4px;flex:0 0 auto}
+  #drawer .picktag.cur{color:var(--accent);border-color:var(--accent);opacity:.9}
+  #drawer .pickcount{font-size:11px;color:var(--muted);margin-left:auto}
+  .note{background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.35);
+    border-radius:7px;padding:8px 10px;font-size:11px;color:#e3b341;line-height:1.5}
+  .lib{display:flex;gap:6px}
+  @media (max-width:1080px){
+    main{flex-direction:column;overflow:auto}
+    aside{flex:0 0 auto;width:100%;border-right:0;border-bottom:1px solid var(--line)}
+    #stage{min-height:70vh}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>a6000 色彩实验室</h1>
+  <span class="model">sRGB 0–255 &nbsp;→&nbsp; 3×3 Matrix (/1024) &nbsp;→&nbsp; 1024-pt Gamma (/1023)</span>
+  <span class="spacer"></span>
+  <button id="btnImport">导入参数…</button>
+  <button id="btnExportPreset" class="primary">导出 profile (JSON)</button>
+  <button id="btnExportCube">导出 .cube</button>
+</header>
+
+<main>
+  <aside>
+    <section class="card">
+      <h2>图像 <span class="tag">预览源</span></h2>
+      <div class="body">
+        <div class="row">
+          <button id="btnOpen" class="grow">选择照片…</button>
+          <button id="btnTestChart" class="ghost">测试图</button>
+        </div>
+        <input id="fileInput" type="file" accept="image/*" hidden>
+        <p class="hint">照片只在本机浏览器内处理，不会上传。直接把图片拖到右侧画布也可以。</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>色彩矩阵 <span class="tag">行和=1024 保持中性轴</span></h2>
+      <div class="body">
+        <div class="row">
+          <select id="matrixPresetSelect" class="grow"><option value="">通用 look 快捷…</option></select>
+          <button id="btnMatrixReset" class="ghost">归零</button>
+        </div>
+        <div id="matrixGrid" class="mtx"></div>
+        <div class="row" style="margin-top:8px">
+          <label><input type="checkbox" id="lockNeutral" checked> 锁定第三列（B' 由 1024−c0−c1 推出）</label>
+        </div>
+        <p class="hint">解出 R′/G′/B′ 三行的线性组合。系数为 /1024 定点；行和=1024 表示中性灰仍为中性灰。</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>色调曲线 <span class="tag">PCHIP 单调 · 1024 点</span></h2>
+      <div class="body">
+        <div class="row">
+          <select id="curvePresetSelect" class="grow"><option value="">曲线快捷…</option></select>
+          <button id="btnCurveReset" class="ghost">线性</button>
+        </div>
+        <canvas id="curveCanvas" width="300" height="300"
+                style="width:100%;aspect-ratio:1;border:1px solid var(--line);border-radius:6px;display:block;cursor:crosshair"></canvas>
+        <p class="hint">拖动控制点；双击空白处加点，双击控制点删点（端点不可删）。</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>滤镜强度 <span class="tag">预览相机端行为</span></h2>
+      <div class="body">
+        <div class="row">
+          <input type="range" id="strengthRange" min="0" max="100" step="1" value="100" class="grow">
+          <span id="strengthVal" class="sum ok" style="min-width:38px">100%</span>
+        </div>
+        <div class="chips" id="strengthChips"></div>
+        <p class="hint">相机菜单只接受 30/50/70/100。其做法是把矩阵向单位矩阵、Gamma 向恒等斜坡线性插值（非像素透明度混合）。
+          <b>导出时始终写入 100% 原始参数</b>，四档强度由 APK 构建脚本自行生成。</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>白平衡 <span class="tag">仅预览 · 不导出</span></h2>
+      <div class="body">
+        <div class="row"><label style="width:34px">色温</label>
+          <input type="range" id="wbTemp" min="-100" max="100" step="1" value="0" class="grow">
+          <span id="wbTempVal" class="sum" style="min-width:38px">0</span></div>
+        <div class="row"><label style="width:34px">色调</label>
+          <input type="range" id="wbTint" min="-100" max="100" step="1" value="0" class="grow">
+          <span id="wbTintVal" class="sum" style="min-width:38px">0</span></div>
+        <p class="hint">相机上的 WB 在 MENU 第 4 页手动设置，不属于 profile 参数。这里只是帮你在调色时预判 WB 的影响。</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>配方 <span class="tag">保存在本机浏览器</span></h2>
+      <div class="body">
+        <div class="row"><label style="width:34px">名称</label><input type="text" id="nameInput" value="我的配方"></div>
+        <div class="row"><label style="width:34px">ID</label><input type="text" id="idInput" value="custom-1"></div>
+        <div class="row lib">
+          <select id="libSelect" class="grow"><option value="">— 已存配方 —</option></select>
+          <button id="btnLibSave">保存</button>
+        </div>
+        <div class="row lib">
+          <button id="btnLibLoad" class="grow">载入</button>
+          <button id="btnLibDel">删除</button>
+          <button id="btnLibExport" class="ghost">导出库</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>校验 <span class="tag">导出前自检</span></h2>
+      <div class="body"><div id="validBox" class="kv"></div></div>
+    </section>
+  </aside>
+
+  <section id="stage">
+    <div class="toolbar">
+      <div class="seg" id="viewSeg">
+        <button data-view="result" class="on">结果</button>
+        <button data-view="original">原图</button>
+        <button data-view="split">分屏对比</button>
+      </div>
+      <span style="font-size:11px;color:var(--muted)" id="splitHint"></span>
+      <span class="stat" id="statusLine">—</span>
+    </div>
+    <div id="canvasWrap">
+      <canvas id="previewCanvas" width="1280" height="800"></canvas>
+      <div class="drop" id="dropZone">松开以载入图片</div>
+    </div>
+    <div class="scope">
+      <figure><figcaption>RGB 直方图（实线=结果 / 虚线=原图）</figcaption>
+        <canvas id="histRGB" width="600" height="236"></canvas></figure>
+      <figure><figcaption>亮度曲线映射（输入 → 输出）</figcaption>
+        <canvas id="histLuma" width="600" height="236"></canvas></figure>
+    </div>
+  </section>
+</main>
+
+<div id="scrim"></div>
+<div id="drawer">
+  <h3><span id="drawerTitle">导出</span><span class="spacer"></span>
+    <button id="btnDrawerCopy" class="ghost">复制</button>
+    <button id="btnDrawerDl" class="ghost">下载</button>
+    <button id="btnDrawerClose" class="ghost">关闭</button></h3>
+  <div class="dbody">
+    <div id="drawerNote"></div>
+    <textarea id="drawerText" spellcheck="false"></textarea>
+    <div class="drow" id="drawerExtra"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   色彩模型 —— 与仓库 tools/fit_luts.py:apply_model 完全一致
+     x = clip(rgb · Mᵀ, 0, 1)      rgb ∈ [0,1]，直接使用 sRGB/Rec.709 编码值
+     y = interp(x, linspace(0,1,1024), curve)
+   矩阵定点标度 ×1024，Gamma 定点标度 ×1023。
+   ============================================================ */
+
+const GRAY = [0.2126, 0.7152, 0.0722];
+const CLAMP01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+
+/* Python round() / numpy.rint() 的「就近取偶」舍入。
+   仓库用 round() 和 np.rint() 处理定点转换，JS 的 Math.round() 是逢半进位，
+   在 50% 这类会产生 .5 的档位会差 1 个定点单位，必须对齐。 */
+function pyRound(x) {
+  const f = Math.floor(x), d = x - f;
+  if (d > 0.5) return f + 1;
+  if (d < 0.5) return f;
+  return (f % 2 === 0) ? f : f + 1;
+}
+
+/* ---------- 单调三次插值 (Fritsch–Carlson) ---------- */
+function pchipSample(xs, ys, n) {
+  const m = xs.length;
+  const out = new Float64Array(n);
+  if (m === 1) { out.fill(ys[0]); return out; }
+  const dx = [], sl = [];
+  for (let i = 0; i < m - 1; i++) {
+    dx[i] = Math.max(xs[i + 1] - xs[i], 1e-6);
+    sl[i] = (ys[i + 1] - ys[i]) / dx[i];
+  }
+  const t = new Array(m);
+  t[0] = sl[0]; t[m - 1] = sl[m - 2];
+  for (let i = 1; i < m - 1; i++) {
+    if (sl[i - 1] * sl[i] <= 0) t[i] = 0;
+    else {
+      const w1 = 2 * dx[i] + dx[i - 1], w2 = dx[i] + 2 * dx[i - 1];
+      t[i] = (w1 + w2) / (w1 / sl[i - 1] + w2 / sl[i]);
+    }
+  }
+  let k = 0;
+  for (let i = 0; i < n; i++) {
+    const x = i / (n - 1);
+    while (k < m - 2 && x > xs[k + 1]) k++;
+    const h = dx[k], u = (x - xs[k]) / h, u2 = u * u, u3 = u2 * u;
+    out[i] = (2 * u3 - 3 * u2 + 1) * ys[k] + (u3 - 2 * u2 + u) * h * t[k]
+           + (-2 * u3 + 3 * u2) * ys[k + 1] + (u3 - u2) * h * t[k + 1];
+  }
+  return out;
+}
+
+/* 控制点 → 1024 点 gamma（浮点 0..1），并保证单调不减 */
+function gammaFromPoints(points) {
+  const pts = points.slice().sort((a, b) => a.x - b.x);
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const raw = pchipSample(xs, ys, 1024);
+  const g = new Float64Array(1024);
+  for (let i = 0; i < 1024; i++) g[i] = CLAMP01(raw[i]);
+  for (let i = 1; i < 1024; i++) if (g[i] < g[i - 1]) g[i] = g[i - 1];
+  return g;
+}
+function gammaIntFromPoints(points) {
+  const g = gammaFromPoints(points);
+  const gi = new Int32Array(1024);
+  for (let i = 0; i < 1024; i++) gi[i] = pyRound(g[i] * 1023);
+  for (let i = 1; i < 1024; i++) if (gi[i] < gi[i - 1]) gi[i] = gi[i - 1];
+  return gi;
+}
+
+/* ---------- 强度混合 —— 严格镜像 tools/filter_strength.py:blend_profile ---------- */
+function blendProfile(matrixInt, gammaInt, strength) {
+  const s = strength;
+  const matrix = [];
+  for (let row = 0; row < 3; row++) {
+    const values = matrixInt[row];
+    const blended = values.map((v, col) =>
+      pyRound(((col === row ? 1024 : 0) * (100 - s) + v * s) / 100));
+    if (values[0] + values[1] + values[2] === 1024) {
+      let others = 0;
+      for (let c = 0; c < 3; c++) if (c !== row) others += blended[c];
+      blended[row] = 1024 - others;
+    }
+    matrix.push(blended);
+  }
+  const gamma = new Int32Array(1024);
+  for (let i = 0; i < 1024; i++) gamma[i] = pyRound((i * (100 - s) + gammaInt[i] * s) / 100);
+  for (let i = 1; i < 1024; i++) if (gamma[i] < gamma[i - 1]) gamma[i] = gamma[i - 1];
+  return { matrix, gamma };
+}
+
+/* ---------- 状态 ---------- */
+const IDENTITY = [[1024, 0, 0], [0, 1024, 0], [0, 0, 1024]];
+const state = {
+  matrix: IDENTITY.map(r => r.slice()),
+  points: [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+  strength: 100,
+  wbTemp: 0, wbTint: 0,
+  lockNeutral: true,
+  view: 'result', split: 0.5,
+  name: '我的配方', id: 'custom-1'
+};
+
+/* ---------- 画布 / 图像 ---------- */
+const previewCanvas = document.getElementById('previewCanvas');
+const pctx = previewCanvas.getContext('2d');
+const origCv = document.createElement('canvas');
+const ocx = origCv.getContext('2d', { willReadFrequently: true });
+const procCv = document.createElement('canvas');
+const pcx = procCv.getContext('2d');
+let srcData = null;        // Uint8ClampedArray 原图
+let workData = null;       // ImageData 工作缓冲
+let imgW = 0, imgH = 0;
+
+function setImageFromCanvas(cv) {
+  imgW = cv.width; imgH = cv.height;
+  origCv.width = procCv.width = previewCanvas.width = imgW;
+  origCv.height = procCv.height = previewCanvas.height = imgH;
+  ocx.drawImage(cv, 0, 0);
+  const d = ocx.getImageData(0, 0, imgW, imgH);
+  srcData = d.data;
+  workData = pcx.createImageData(imgW, imgH);
+  schedule();
+}
+
+function loadImageFile(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    // 预览分辨率上限：长边 1600，兼顾速度与观感
+    const MAX = 1600;
+    const k = Math.min(1, MAX / Math.max(img.width, img.height));
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(img.width * k));
+    cv.height = Math.max(1, Math.round(img.height * k));
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    setImageFromCanvas(cv);
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
+/* 内置测试图：彩条 + 色相扫 + 灰阶楔 + 肤色 + 高光/阴影 */
+function makeTestChart() {
+  const W = 1280, H = 800;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const x = cv.getContext('2d');
+  // 主彩条
+  const bars = ['#ffffff', '#ffff00', '#00ffff', '#00ff00', '#ff00ff', '#ff0000', '#0000ff', '#101010'];
+  const bw = W / bars.length;
+  bars.forEach((c, i) => { x.fillStyle = c; x.fillRect(i * bw, 0, bw, H * 0.28); });
+  // 色相扫
+  const g1 = x.createLinearGradient(0, 0, W, 0);
+  for (let i = 0; i <= 12; i++) g1.addColorStop(i / 12, `hsl(${i * 30},100%,50%)`);
+  x.fillStyle = g1; x.fillRect(0, H * 0.28, W, H * 0.18);
+  // 肤色 / 常用色块
+  const patches = ['#f6d7c4', '#e0ac8b', '#c68642', '#8d5524', '#ffd9b3',
+                   '#7a8b99', '#2f4f4f', '#6b8e23', '#b7410e', '#f0e68c'];
+  const pw = W / patches.length;
+  patches.forEach((c, i) => { x.fillStyle = c; x.fillRect(i * pw, H * 0.46, pw, H * 0.16); });
+  // 灰阶楔
+  const steps = 21;
+  for (let i = 0; i < steps; i++) {
+    const v = Math.round(i / (steps - 1) * 255);
+    x.fillStyle = `rgb(${v},${v},${v})`;
+    x.fillRect(i * W / steps, H * 0.62, W / steps + 1, H * 0.16);
+  }
+  // 干净灰底 + 高光小方块，便于看曲线端点
+  x.fillStyle = '#808080'; x.fillRect(0, H * 0.78, W, H * 0.22);
+  const spots = [0, 16, 32, 64, 128, 192, 224, 240, 255];
+  const sw = W / spots.length;
+  spots.forEach((v, i) => { x.fillStyle = `rgb(${v},${v},${v})`; x.fillRect(i * sw + 4, H * 0.82, sw - 8, H * 0.14); });
+  setImageFromCanvas(cv);
+}
+
+/* ---------- 处理与渲染 ---------- */
+let dirty = false, lastMs = 0;
+function schedule() { if (!dirty) { dirty = true; requestAnimationFrame(render); } }
+
+function render() {
+  dirty = false;
+  if (!srcData) return;
+  const t0 = performance.now();
+
+  const gammaInt = gammaIntFromPoints(state.points);
+  const blended = blendProfile(state.matrix, gammaInt, state.strength);
+  const gm = blended.matrix;                       // 整数 /1024
+  const gg = blended.gamma;                        // 整数 /1023
+
+  // 曲线查找表（4096 级，线性插值）
+  const LUTN = 4096;
+  const cLUT = new Float32Array(LUTN + 1);
+  for (let i = 0; i <= LUTN; i++) {
+    const p = i / LUTN * 1023, i0 = Math.floor(p), f = p - i0;
+    cLUT[i] = (gg[i0] * (1 - f) + gg[Math.min(1023, i0 + 1)] * f) / 1023;
+  }
+  const m00 = gm[0][0] / 1024, m01 = gm[0][1] / 1024, m02 = gm[0][2] / 1024;
+  const m10 = gm[1][0] / 1024, m11 = gm[1][1] / 1024, m12 = gm[1][2] / 1024;
+  const m20 = gm[2][0] / 1024, m21 = gm[2][1] / 1024, m22 = gm[2][2] / 1024;
+
+  // 白平衡（仅预览）
+  const t = state.wbTemp / 100, ti = state.wbTint / 100;
+  const gr = 1 + 0.22 * t + 0.04 * ti;
+  const ggc = 1 + 0.0 * t - 0.10 * ti;
+  const gb = 1 - 0.22 * t + 0.04 * ti;
+  const wbOn = state.wbTemp !== 0 || state.wbTint !== 0;
+
+  const out = workData.data;
+  out.set(srcData);
+  const N = imgW * imgH;
+  for (let i = 0; i < N; i++) {
+    const o = i << 2;
+    let r = srcData[o] / 255, g = srcData[o + 1] / 255, b = srcData[o + 2] / 255;
+    if (wbOn) {
+      r = CLAMP01(r * gr); g = CLAMP01(g * ggc); b = CLAMP01(b * gb);
+    }
+    const nr = CLAMP01(m00 * r + m01 * g + m02 * b);
+    const ng = CLAMP01(m10 * r + m11 * g + m12 * b);
+    const nb = CLAMP01(m20 * r + m21 * g + m22 * b);
+    out[o]     = cLUT[(nr * LUTN + 0.5) | 0] * 255;
+    out[o + 1] = cLUT[(ng * LUTN + 0.5) | 0] * 255;
+    out[o + 2] = cLUT[(nb * LUTN + 0.5) | 0] * 255;
+  }
+  pcx.putImageData(workData, 0, 0);
+
+  drawStage();
+  drawHistograms();
+  drawValidation(gm, gg, gammaInt);
+  lastMs = performance.now() - t0;
+  updateStatus();
+}
+
+function drawStage() {
+  const W = imgW, H = imgH;
+  pctx.clearRect(0, 0, W, H);
+  if (state.view === 'result') {
+    pctx.drawImage(procCv, 0, 0);
+  } else if (state.view === 'original') {
+    pctx.drawImage(origCv, 0, 0);
+  } else {
+    const sx = Math.round(state.split * W);
+    pctx.drawImage(origCv, 0, 0, sx, H, 0, 0, sx, H);
+    pctx.drawImage(procCv, sx, 0, W - sx, H, sx, 0, W - sx, H);
+    pctx.strokeStyle = 'rgba(255,255,255,.9)';
+    pctx.lineWidth = 2;
+    pctx.beginPath(); pctx.moveTo(sx, 0); pctx.lineTo(sx, H); pctx.stroke();
+    pctx.fillStyle = 'rgba(0,0,0,.55)';
+    pctx.font = '600 15px system-ui,sans-serif';
+    pctx.fillText('原图', 12, 26);
+    const tw = pctx.measureText('结果').width;
+    pctx.fillText('结果', W - tw - 12, 26);
+  }
+}
+
+/* ---------- 直方图 ---------- */
+const histRGB = document.getElementById('histRGB');
+const hcx = histRGB.getContext('2d');
+const histLuma = document.getElementById('histLuma');
+const lcx = histLuma.getContext('2d');
+
+function histOf(data, stride) {
+  const h = [new Float32Array(256), new Float32Array(256), new Float32Array(256)];
+  const N = data.length >> 2;
+  for (let i = 0; i < N; i += stride) {
+    const o = i << 2;
+    h[0][data[o]]++; h[1][data[o + 1]]++; h[2][data[o + 2]]++;
+  }
+  return h;
+}
+function drawHistograms() {
+  const W = histRGB.width, H = histRGB.height;
+  hcx.clearRect(0, 0, W, H);
+  hcx.fillStyle = '#12171e'; hcx.fillRect(0, 0, W, H);
+  // 网格
+  hcx.strokeStyle = 'rgba(255,255,255,.07)'; hcx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    const x = i / 4 * W;
+    hcx.beginPath(); hcx.moveTo(x, 0); hcx.lineTo(x, H); hcx.stroke();
+  }
+  if (!srcData) return;
+  const stride = Math.max(1, Math.round((srcData.length >> 2) / 160000));
+  const hp = histOf(workData.data, stride);
+  const ho = histOf(srcData, stride);
+  const cols = ['#ff5c5c', '#4ade80', '#60a5fa'];
+  const norm = hist => {
+    let mx = 1;
+    for (const c of hist) for (const v of c) if (v > mx) mx = v;
+    return mx;
+  };
+  const mxP = Math.max(norm(hp), norm(ho)) * 1.05;
+  // 原图虚线
+  hcx.setLineDash([4, 3]); hcx.globalAlpha = 0.5;
+  cols.forEach((c, k) => {
+    hcx.strokeStyle = c; hcx.lineWidth = 1; hcx.beginPath();
+    for (let i = 0; i < 256; i++) {
+      const x = i / 255 * W, y = H - ho[k][i] / mxP * H;
+      i ? hcx.lineTo(x, y) : hcx.moveTo(x, y);
+    }
+    hcx.stroke();
+  });
+  hcx.setLineDash([]); hcx.globalAlpha = 0.85;
+  cols.forEach((c, k) => {
+    hcx.strokeStyle = c; hcx.lineWidth = 1.6; hcx.beginPath();
+    for (let i = 0; i < 256; i++) {
+      const x = i / 255 * W, y = H - hp[k][i] / mxP * H;
+      i ? hcx.lineTo(x, y) : hcx.moveTo(x, y);
+    }
+    hcx.stroke();
+  });
+  hcx.globalAlpha = 1;
+
+  // 亮度曲线映射图
+  const LW = histLuma.width, LH = histLuma.height;
+  lcx.clearRect(0, 0, LW, LH);
+  lcx.fillStyle = '#12171e'; lcx.fillRect(0, 0, LW, LH);
+  lcx.strokeStyle = 'rgba(255,255,255,.07)';
+  for (let i = 1; i < 4; i++) {
+    const x = i / 4 * LW, y = i / 4 * LH;
+    lcx.beginPath(); lcx.moveTo(x, 0); lcx.lineTo(x, LH); lcx.stroke();
+    lcx.beginPath(); lcx.moveTo(0, y); lcx.lineTo(LW, y); lcx.stroke();
+  }
+  // 对角线参考
+  lcx.setLineDash([5, 4]); lcx.strokeStyle = 'rgba(255,255,255,.28)';
+  lcx.beginPath(); lcx.moveTo(0, LH); lcx.lineTo(LW, 0); lcx.stroke();
+  lcx.setLineDash([]);
+  // 恒等
+  lcx.strokeStyle = 'rgba(139,148,158,.6)'; lcx.lineWidth = 1; lcx.beginPath();
+  for (let i = 0; i <= 1023; i++) {
+    const x = i / 1023 * LW, y = LH - i / 1023 * LH;
+    i ? lcx.lineTo(x, y) : lcx.moveTo(x, y);
+  }
+  lcx.stroke();
+  // 100% 曲线
+  const g100 = gammaIntFromPoints(state.points);
+  lcx.strokeStyle = '#3fb950'; lcx.lineWidth = 2; lcx.beginPath();
+  for (let i = 0; i <= 1023; i++) {
+    const x = i / 1023 * LW, y = LH - g100[i] / 1023 * LH;
+    i ? lcx.lineTo(x, y) : lcx.moveTo(x, y);
+  }
+  lcx.stroke();
+  // 当前强度曲线
+  const gb = blendProfile(state.matrix, g100, state.strength).gamma;
+  lcx.strokeStyle = '#58a6ff'; lcx.lineWidth = 2; lcx.beginPath();
+  for (let i = 0; i <= 1023; i++) {
+    const x = i / 1023 * LW, y = LH - gb[i] / 1023 * LH;
+    i ? lcx.lineTo(x, y) : lcx.moveTo(x, y);
+  }
+  lcx.stroke();
+  lcx.fillStyle = 'rgba(255,255,255,.65)';
+  lcx.font = '12px system-ui,sans-serif';
+  lcx.fillText('100%', LW - 52, LH - 8);
+  lcx.fillStyle = 'rgba(88,166,255,.95)';
+  lcx.fillText(state.strength + '%', LW - 52, LH - 26);
+}
+
+/* ---------- 校验面板 ---------- */
+const validBox = document.getElementById('validBox');
+function drawValidation(gm, gg, gammaInt) {
+  const rows = [];
+  gm.forEach((row, i) => {
+    const s = row.reduce((a, b) => a + b, 0);
+    const cls = s === 1024 ? 'ok' : 'wr';
+    rows.push([`行和 ${['R′', 'G′', 'B′'][i]}`, `<span class="${cls}">${s}</span>`]);
+  });
+  let mono = true;
+  for (let i = 1; i < 1024; i++) if (gg[i] < gg[i - 1]) { mono = false; break; }
+  rows.push(['Γ 单调不减', mono ? '<span class="ok">✓ 通过</span>' : '<span class="no">✗ 失败</span>']);
+  rows.push(['Γ 端点', `0→<span class="ok">${gammaInt[0]}</span> · 1023→<span class="ok">${gammaInt[1023]}</span>`]);
+  rows.push(['Γ 范围', `${Math.min(...gg)} – ${Math.max(...gg)} / 1023`]);
+  rows.push(['矩阵范围', `${Math.min(...gm.flat())} – ${Math.max(...gm.flat())} / 1024`]);
+  const inRange = gm.flat().every(v => v >= -2048 && v <= 3072);
+  rows.push(['定点范围', inRange ? '<span class="ok">✓ −2048…3072</span>' : '<span class="no">✗ 超范围</span>']);
+  rows.push(['导出家族', '<span class="ok">custom</span> → 菜单显示「自定义 」+ 名称']);
+  rows.push(['控制点', state.points.length + ' 个']);
+  rows.push(['强度', state.strength + '% （导出取 100%）']);
+
+  validBox.innerHTML = rows
+    .map(([k, v]) => `<span class="k">${k}</span><span>${v}</span>`).join('');
+}
+
+function updateStatus() {
+  const el = document.getElementById('statusLine');
+  if (!srcData) { el.textContent = '—'; return; }
+  el.textContent = `${imgW}×${imgH} · ${lastMs.toFixed(0)} ms · ${state.view === 'split' ? '分屏' : state.view === 'result' ? '结果' : '原图'}`;
+}
+
+/* ============================================================
+   矩阵 UI
+   ============================================================ */
+const matrixGrid = document.getElementById('matrixGrid');
+const matrixCells = [];
+function satMatrix(s) {
+  return [0, 1, 2].map(i => [0, 1, 2].map(j => (i === j ? s : 0) + (1 - s) * GRAY[j]));
+}
+const MATRIX_PRESETS = {
+  '中性（恒等）': IDENTITY.map(r => r.slice()),
+  '暖调': [[1.05, -0.02, -0.03], [-0.02, 1.02, 0], [-0.03, -0.02, 1.05]],
+  '冷调': [[0.95, 0, 0.05], [0, 1.0, 0], [0.05, 0, 0.95]],
+  '高饱和 +20%': satMatrix(1.2),
+  '低饱和 −35%': satMatrix(0.65),
+  '黑白（Rec.709 亮度）': [GRAY.slice(), GRAY.slice(), GRAY.slice()],
+  '青橙（电影感）': [[1.03, 0.02, -0.05], [-0.02, 1.04, -0.02], [-0.03, 0.05, 0.98]],
+  '红色增强': [[1.08, -0.04, -0.04], [-0.03, 1.03, 0], [-0.03, 0, 1.03]]
+};
+
+function buildMatrixUI() {
+  matrixGrid.innerHTML = '';
+  matrixCells.length = 0;
+  const hdr = ['', 'R', 'G', 'B', ''];
+  hdr.forEach((h, i) => {
+    const d = document.createElement('div');
+    d.className = 'head';
+    d.textContent = i === 0 || i === 4 ? '' : '←' + h;
+    matrixGrid.appendChild(d);
+  });
+  ['R′', 'G′', 'B′'].forEach((label, row) => {
+    const l = document.createElement('div');
+    l.className = 'rl'; l.textContent = label;
+    matrixGrid.appendChild(l);
+    const rowCells = [];
+    for (let col = 0; col < 3; col++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      const rng = document.createElement('input');
+      rng.type = 'range'; rng.min = -1; rng.max = 2; rng.step = 0.005;
+      const num = document.createElement('input');
+      num.type = 'number'; num.min = -2; num.max = 3; num.step = 0.005;
+      rng.addEventListener('input', () => {
+        if (state.lockNeutral && col === 2) return;
+        state.matrix[row][col] = pyRound(parseFloat(rng.value) * 1024);
+        if (state.lockNeutral) normalizeRow(row);
+        syncMatrixUI(); schedule();
+      });
+      num.addEventListener('change', () => {
+        if (state.lockNeutral && col === 2) return;
+        state.matrix[row][col] = pyRound(parseFloat(num.value || 0) * 1024);
+        if (state.lockNeutral) normalizeRow(row);
+        syncMatrixUI(); schedule();
+      });
+      cell.appendChild(rng); cell.appendChild(num);
+      matrixGrid.appendChild(cell);
+      rowCells.push({ cell, rng, num, col });
+    }
+    const sum = document.createElement('div');
+    sum.className = 'sum'; sum.dataset.row = row;
+    matrixGrid.appendChild(sum);
+    matrixCells.push({ row, cells: rowCells, sum });
+  });
+}
+function normalizeRow(row) {
+  const m = state.matrix[row];
+  m[2] = 1024 - m[0] - m[1];
+}
+function syncMatrixUI() {
+  matrixCells.forEach(({ row, cells, sum }) => {
+    cells.forEach(({ cell, rng, num, col }) => {
+      const v = state.matrix[row][col] / 1024;
+      rng.value = v; num.value = v.toFixed(3);
+      const locked = state.lockNeutral && col === 2;
+      cell.classList.toggle('locked', locked);
+      num.readOnly = locked;
+    });
+    const s = state.matrix[row].reduce((a, b) => a + b, 0);
+    sum.textContent = 'Σ ' + s;
+    sum.className = 'sum ' + (s === 1024 ? 'ok' : 'wr');
+  });
+}
+const msel = document.getElementById('matrixPresetSelect');
+Object.keys(MATRIX_PRESETS).forEach(k => {
+  const o = document.createElement('option'); o.value = k; o.textContent = k; msel.appendChild(o);
+});
+msel.addEventListener('change', () => {
+  const p = MATRIX_PRESETS[msel.value];
+  if (!p) return;
+  state.matrix = p.map(r => r.map(v => pyRound(v * 1024)));
+  if (state.lockNeutral) for (let r = 0; r < 3; r++) normalizeRow(r);
+  msel.value = ''; syncMatrixUI(); schedule();
+});
+document.getElementById('btnMatrixReset').addEventListener('click', () => {
+  state.matrix = IDENTITY.map(r => r.slice()); syncMatrixUI(); schedule();
+});
+document.getElementById('lockNeutral').addEventListener('change', e => {
+  state.lockNeutral = e.target.checked;
+  if (state.lockNeutral) for (let r = 0; r < 3; r++) normalizeRow(r);
+  syncMatrixUI(); schedule();
+});
+
+/* ============================================================
+   曲线 UI
+   ============================================================ */
+const curveCanvas = document.getElementById('curveCanvas');
+const ccx = curveCanvas.getContext('2d');
+const CURVE_PRESETS = {
+  '线性（恒等）': [{ x: 0, y: 0 }, { x: 1, y: 1 }],
+  '柔和 S 曲线': [{ x: 0, y: 0 }, { x: .25, y: .22 }, { x: .5, y: .5 }, { x: .75, y: .78 }, { x: 1, y: 1 }],
+  '强对比': [{ x: 0, y: 0 }, { x: .25, y: .15 }, { x: .5, y: .5 }, { x: .75, y: .85 }, { x: 1, y: 1 }],
+  '提亮阴影': [{ x: 0, y: .07 }, { x: .25, y: .31 }, { x: .5, y: .53 }, { x: .75, y: .77 }, { x: 1, y: 1 }],
+  '压高光': [{ x: 0, y: 0 }, { x: .25, y: .24 }, { x: .5, y: .48 }, { x: .75, y: .71 }, { x: 1, y: .93 }],
+  '褪色 / 漂白': [{ x: 0, y: .09 }, { x: .25, y: .28 }, { x: .5, y: .5 }, { x: .75, y: .74 }, { x: 1, y: .96 }],
+  '暗调（电影）': [{ x: 0, y: 0 }, { x: .3, y: .22 }, { x: .7, y: .6 }, { x: 1, y: 1 }]
+};
+const csel = document.getElementById('curvePresetSelect');
+Object.keys(CURVE_PRESETS).forEach(k => {
+  const o = document.createElement('option'); o.value = k; o.textContent = k; csel.appendChild(o);
+});
+csel.addEventListener('change', () => {
+  const p = CURVE_PRESETS[csel.value];
+  if (!p) return;
+  state.points = p.map(q => ({ x: q.x, y: q.y }));
+  csel.value = ''; drawCurve(); schedule();
+});
+document.getElementById('btnCurveReset').addEventListener('click', () => {
+  state.points = [{ x: 0, y: 0 }, { x: 1, y: 1 }]; drawCurve(); schedule();
+});
+
+const PAD = 26;
+function curveToPx(p) {
+  const S = curveCanvas.width;
+  return { x: PAD + p.x * (S - 2 * PAD), y: S - PAD - p.y * (S - 2 * PAD) };
+}
+function pxToCurve(px, py) {
+  const S = curveCanvas.width;
+  return {
+    x: CLAMP01((px - PAD) / (S - 2 * PAD)),
+    y: CLAMP01((S - PAD - py) / (S - 2 * PAD))
+  };
+}
+function drawCurve() {
+  const S = curveCanvas.width;
+  ccx.clearRect(0, 0, S, S);
+  ccx.fillStyle = '#12171e'; ccx.fillRect(0, 0, S, S);
+  // 网格
+  ccx.strokeStyle = 'rgba(255,255,255,.08)'; ccx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const v = PAD + i / 4 * (S - 2 * PAD);
+    ccx.beginPath(); ccx.moveTo(v, PAD); ccx.lineTo(v, S - PAD); ccx.stroke();
+    ccx.beginPath(); ccx.moveTo(PAD, v); ccx.lineTo(S - PAD, v); ccx.stroke();
+  }
+  // 对角线
+  ccx.setLineDash([4, 4]); ccx.strokeStyle = 'rgba(255,255,255,.22)';
+  ccx.beginPath(); ccx.moveTo(PAD, S - PAD); ccx.lineTo(S - PAD, PAD); ccx.stroke();
+  ccx.setLineDash([]);
+  // 曲线
+  const g = gammaFromPoints(state.points);
+  ccx.strokeStyle = '#3fb950'; ccx.lineWidth = 2.2; ccx.beginPath();
+  for (let i = 0; i < 1024; i++) {
+    const px = PAD + i / 1023 * (S - 2 * PAD);
+    const py = S - PAD - g[i] * (S - 2 * PAD);
+    i ? ccx.lineTo(px, py) : ccx.moveTo(px, py);
+  }
+  ccx.stroke();
+  // 控制点
+  state.points.forEach(p => {
+    const q = curveToPx(p);
+    ccx.beginPath(); ccx.arc(q.x, q.y, 5.5, 0, 7);
+    ccx.fillStyle = '#0d1117'; ccx.fill();
+    ccx.lineWidth = 2.2; ccx.strokeStyle = '#58a6ff'; ccx.stroke();
+  });
+  // 轴标
+  ccx.fillStyle = 'rgba(255,255,255,.45)'; ccx.font = '11px system-ui,sans-serif';
+  ccx.fillText('输入', S / 2 - 12, S - 6);
+  ccx.save(); ccx.translate(12, S / 2 + 12); ccx.rotate(-Math.PI / 2);
+  ccx.fillText('输出', 0, 0); ccx.restore();
+}
+let dragIdx = -1;
+curveCanvas.addEventListener('pointerdown', ev => {
+  const r = curveCanvas.getBoundingClientRect();
+  const sx = curveCanvas.width / r.width;
+  const px = (ev.clientX - r.left) * sx, py = (ev.clientY - r.top) * sx;
+  let best = -1, bd = 14;
+  state.points.forEach((p, i) => {
+    const q = curveToPx(p);
+    const d = Math.hypot(q.x - px, q.y - py);
+    if (d < bd) { bd = d; best = i; }
+  });
+  if (best < 0) return;
+  dragIdx = best;
+  curveCanvas.setPointerCapture(ev.pointerId);
+});
+curveCanvas.addEventListener('pointermove', ev => {
+  if (dragIdx < 0) return;
+  const r = curveCanvas.getBoundingClientRect();
+  const sx = curveCanvas.width / r.width;
+  const p = pxToCurve((ev.clientX - r.left) * sx, (ev.clientY - r.top) * sx);
+  const pts = state.points;
+  const first = dragIdx === 0, last = dragIdx === pts.length - 1;
+  if (first) { pts[0].x = 0; }
+  else if (last) { pts[dragIdx].x = 1; }
+  else {
+    const lo = pts[dragIdx - 1].x + 0.01, hi = pts[dragIdx + 1].x - 0.01;
+    pts[dragIdx].x = Math.min(hi, Math.max(lo, p.x));
+  }
+  pts[dragIdx].y = p.y;
+  drawCurve(); schedule();
+});
+curveCanvas.addEventListener('pointerup', () => { dragIdx = -1; });
+curveCanvas.addEventListener('pointercancel', () => { dragIdx = -1; });
+
+curveCanvas.addEventListener('dblclick', ev => {
+  const r = curveCanvas.getBoundingClientRect();
+  const sx = curveCanvas.width / r.width;
+  const px = (ev.clientX - r.left) * sx, py = (ev.clientY - r.top) * sx;
+  const hit = state.points.findIndex(p => {
+    const q = curveToPx(p); return Math.hypot(q.x - px, q.y - py) < 14;
+  });
+  if (hit >= 0) {
+    if (hit === 0 || hit === state.points.length - 1) return;   // 端点不可删
+    state.points.splice(hit, 1);
+  } else {
+    const p = pxToCurve(px, py);
+    if (p.x <= 0.01 || p.x >= 0.99) return;
+    if (state.points.some(q => Math.abs(q.x - p.x) < 0.012)) return;
+    state.points.push(p);
+    state.points.sort((a, b) => a.x - b.x);
+  }
+  drawCurve(); schedule();
+});
+
+/* ============================================================
+   强度 / 白平衡
+   ============================================================ */
+const sRange = document.getElementById('strengthRange');
+const sVal = document.getElementById('strengthVal');
+const sChips = document.getElementById('strengthChips');
+[30, 50, 70, 100].forEach(s => {
+  const d = document.createElement('div');
+  d.className = 'chip'; d.textContent = s + '%'; d.dataset.s = s;
+  d.addEventListener('click', () => { sRange.value = s; applyStrength(s); });
+  sChips.appendChild(d);
+});
+function applyStrength(s) {
+  state.strength = s; sVal.textContent = s + '%';
+  [...sChips.children].forEach(c => c.classList.toggle('on', +c.dataset.s === s));
+  schedule();
+}
+sRange.addEventListener('input', () => applyStrength(+sRange.value));
+
+function bindWb(id, key) {
+  const el = document.getElementById(id);
+  const out = document.getElementById(id + 'Val');
+  el.addEventListener('input', () => {
+    state[key] = +el.value; out.textContent = el.value; schedule();
+  });
+}
+bindWb('wbTemp', 'wbTemp');
+bindWb('wbTint', 'wbTint');
+
+/* ============================================================
+   视图
+   ============================================================ */
+const splitHint = document.getElementById('splitHint');
+document.getElementById('viewSeg').addEventListener('click', ev => {
+  const b = ev.target.closest('button'); if (!b) return;
+  state.view = b.dataset.view;
+  [...ev.currentTarget.children].forEach(x => x.classList.toggle('on', x === b));
+  splitHint.textContent = state.view === 'split' ? '在画布上左右拖动分割线' : '';
+  drawStage(); updateStatus();
+});
+let splitDrag = false;
+previewCanvas.addEventListener('pointerdown', ev => {
+  if (state.view !== 'split') return;
+  splitDrag = true; previewCanvas.setPointerCapture(ev.pointerId); moveSplit(ev);
+});
+previewCanvas.addEventListener('pointermove', ev => { if (splitDrag) moveSplit(ev); });
+previewCanvas.addEventListener('pointerup', () => { splitDrag = false; });
+function moveSplit(ev) {
+  const r = previewCanvas.getBoundingClientRect();
+  state.split = CLAMP01((ev.clientX - r.left) / r.width);
+  drawStage();
+}
+
+/* ============================================================
+   图像载入
+   ============================================================ */
+document.getElementById('btnOpen').addEventListener('click', () => document.getElementById('fileInput').click());
+document.getElementById('btnTestChart').addEventListener('click', makeTestChart);
+document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files[0]) loadImageFile(e.target.files[0]);
+});
+const wrap = document.getElementById('canvasWrap');
+const dropZone = document.getElementById('dropZone');
+['dragenter', 'dragover'].forEach(t => wrap.addEventListener(t, e => {
+  e.preventDefault(); dropZone.classList.add('on');
+}));
+['dragleave', 'drop'].forEach(t => wrap.addEventListener(t, e => {
+  e.preventDefault(); dropZone.classList.remove('on');
+}));
+wrap.addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadImageFile(f);
+});
+
+/* ============================================================
+   导出 / 导入
+   ============================================================ */
+function buildPresetObject() {
+  // 始终导出 100% 原始参数：强度由 APK 构建脚本生成
+  const gamma = gammaIntFromPoints(state.points);
+  return {
+    id: state.id,
+    name: state.name,
+    family: 'custom',
+    guide: '本地自定义配方；未做实拍色彩标定，仅作风格近似。',
+    source_file: 'a6000-color-lab',
+    matrix: state.matrix.map(r => r.slice()),
+    gamma: Array.from(gamma)
+  };
+}
+const esc = s => String(s).replace(/[&<>"]/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const safeFileName = s => (s || 'preset').replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
+
+/* 导出候选 = 配方库全部 + 当前编辑中这条（按 id 去重）。
+   之前只能整库合并导出，库里有多个 LUT 时无法只取其中几条。 */
+function exportCandidates() {
+  const arr = libLoad().map(p => ({ preset: p, tag: '' }));
+  const cur = buildPresetObject();
+  const i = arr.findIndex(e => e.preset.id === cur.id);
+  if (i >= 0) arr[i] = { preset: cur, tag: '当前编辑' };
+  else arr.push({ preset: cur, tag: '当前未保存' });
+  return arr;
+}
+function buildPack(presets) {
+  return {
+    schema: 1,
+    version: '0.2.0-alpha',
+    note: '本地自定义配方集。可被 tools/add_presets.py --custom 读取，每条会成为一个菜单项。',
+    presets: presets
+  };
+}
+
+function openExportDrawer(candidates, title) {
+  const picked = candidates.map(() => true);
+  let singleShape = false;
+
+  const render = () => {
+    const chosen = candidates.filter((c, i) => picked[i]).map(c => c.preset);
+    const n = chosen.length;
+    const ids = chosen.map(p => p.id);
+    const dupes = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+    const one = singleShape && n === 1;
+    dText.value = JSON.stringify(one ? chosen[0] : buildPack(chosen), null, 2);
+    dlBody = dText.value;
+    dlName = one ? safeFileName(chosen[0].id) + '.json' : 'custom_profiles.json';
+
+    const warn = n > 30 ? `<div class="note" style="border-color:rgba(248,81,73,.4);background:rgba(248,81,73,.08);color:#ff9d95">
+      <b>已选 ${n} 条。</b>每条配方会往 APK 的 <code>&lt;clinit&gt;</code> 写入 4 档强度 ×（9 个矩阵值 + 2048 字节 Gamma），
+      数量过多会显著增大 DEX，并可能超出相机 VM 的加载能力。建议控制在 30 条以内。</div>` : '';
+    const dup = dupes.length ? `<div class="note" style="border-color:rgba(248,81,73,.4);background:rgba(248,81,73,.08);color:#ff9d95">
+      <b>选中项里有重复 id：<code>${esc(dupes.join(', '))}</code></b>。注入 APK 时会直接报错，请先改名或只勾选一条。</div>` : '';
+    dNote.innerHTML = EXPORT_NOTE + `<div class="note" style="border-color:rgba(88,166,255,.35);background:rgba(88,166,255,.08);color:#9ecbff">
+      <b>勾选你要导出的配方</b>，JSON 会实时跟着变。已选 <b>${n}</b> / ${candidates.length} 条，
+      下载文件名 <code>${esc(dlName)}</code>。注入 APK 时每条对应一个菜单项。</div>` + warn + dup;
+    const cnt = document.getElementById('pickCount');
+    if (cnt) cnt.textContent = `已选 ${n} / ${candidates.length}`;
+  };
+  const syncBoxes = () => document.querySelectorAll('#pickList input')
+    .forEach(b => { b.checked = picked[+b.dataset.i]; });
+
+  const rows = candidates.map((c, i) => `<label>
+      <input type="checkbox" data-i="${i}" checked>
+      <span class="nm">${esc(c.preset.name)}</span>
+      <span class="picktag">${esc(c.preset.id)}</span>
+      ${c.tag ? `<span class="picktag cur">${esc(c.tag)}</span>` : ''}
+    </label>`).join('');
+
+  openDrawer(title, '', '', `<div class="pickwrap">
+    <div class="picklist" id="pickList">${rows || '<div class="pickcount">配方库为空</div>'}</div>
+    <div class="drow">
+      <button id="pickAll">全选</button>
+      <button id="pickNone">全不选</button>
+      <button id="pickCur">仅当前</button>
+      <button id="pickShape">切换为单条 preset 对象</button>
+      <button id="btnDlPack" class="primary">下载</button>
+      <span class="pickcount" id="pickCount"></span>
+    </div></div>`, 'custom_profiles.json', 'application/json');
+  render();
+
+  document.getElementById('pickList').addEventListener('change', e => {
+    if (e.target.dataset.i === undefined) return;
+    picked[+e.target.dataset.i] = e.target.checked;
+    render();
+  });
+  document.getElementById('pickAll').addEventListener('click',
+    () => { picked.fill(true); syncBoxes(); render(); });
+  document.getElementById('pickNone').addEventListener('click',
+    () => { picked.fill(false); syncBoxes(); render(); });
+  document.getElementById('pickCur').addEventListener('click', () => {
+    const i = candidates.findIndex(c => c.tag !== '');
+    picked.fill(false);
+    if (i >= 0) picked[i] = true;
+    syncBoxes(); render();
+  });
+  document.getElementById('pickShape').addEventListener('click', e => {
+    singleShape = !singleShape;
+    e.target.textContent = singleShape ? '切换为整包 custom_profiles.json' : '切换为单条 preset 对象';
+    render();
+  });
+  document.getElementById('btnDlPack').addEventListener('click',
+    () => download(dlName, dText.value, 'application/json'));
+}
+function buildCube() {
+  const gamma = gammaIntFromPoints(state.points);
+  const M = state.matrix.map(r => r.map(v => v / 1024));
+  const g = new Float64Array(1024);
+  for (let i = 0; i < 1024; i++) g[i] = gamma[i] / 1023;
+  const n = 33;
+  const lines = [];
+  lines.push('# Sony Standard / Rec.709 proxy input, FULL range. Experimental approximation.');
+  lines.push('# Generated by a6000-color-lab from the Film Studio matrix+gamma model.');
+  lines.push(`TITLE "${state.name} - Sony proxy approximation"`);
+  lines.push('LUT_3D_SIZE ' + n);
+  const step = 1 / (n - 1);
+  for (let bi = 0; bi < n; bi++) {
+    for (let gi = 0; gi < n; gi++) {
+      for (let ri = 0; ri < n; ri++) {
+        const r = ri * step, gg = gi * step, b = bi * step;
+        const x = CLAMP01(M[0][0] * r + M[0][1] * gg + M[0][2] * b);
+        const y = CLAMP01(M[1][0] * r + M[1][1] * gg + M[1][2] * b);
+        const z = CLAMP01(M[2][0] * r + M[2][1] * gg + M[2][2] * b);
+        const q = v => { const p = v * 1023, i0 = Math.floor(p), f = p - i0; return (g[i0] * (1 - f) + g[Math.min(1023, i0 + 1)] * f); };
+        lines.push(`${q(x).toFixed(7)} ${q(y).toFixed(7)} ${q(z).toFixed(7)}`);
+      }
+    }
+  }
+  return lines.join('\n') + '\n';
+}
+
+/* 抽屉 */
+const scrim = document.getElementById('scrim');
+const drawer = document.getElementById('drawer');
+const dTitle = document.getElementById('drawerTitle');
+const dText = document.getElementById('drawerText');
+const dNote = document.getElementById('drawerNote');
+const dExtra = document.getElementById('drawerExtra');
+let dlName = 'profile.json', dlBody = '', dlMime = 'application/json';
+
+function openDrawer(title, body, noteHtml, extraHtml, filename, mime) {
+  dTitle.textContent = title;
+  dText.value = body;
+  dNote.innerHTML = noteHtml || '';
+  dExtra.innerHTML = extraHtml || '';
+  dlName = filename; dlBody = body; dlMime = mime || 'application/json';
+  scrim.classList.add('on'); drawer.classList.add('on');
+}
+function closeDrawer() { scrim.classList.remove('on'); drawer.classList.remove('on'); }
+document.getElementById('btnDrawerClose').addEventListener('click', closeDrawer);
+scrim.addEventListener('click', closeDrawer);
+document.getElementById('btnDrawerCopy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(dText.value); flash('已复制到剪贴板'); }
+  catch { dText.select(); document.execCommand('copy'); flash('已复制'); }
+});
+document.getElementById('btnDrawerDl').addEventListener('click', () => download(dlName, dlBody, dlMime));
+function flash(msg) {
+  const el = document.getElementById('statusLine');
+  const old = el.textContent; el.textContent = msg;
+  setTimeout(() => { el.textContent = old; }, 1400);
+}
+function download(name, body, mime) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([body], { type: mime || 'application/json' }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+const EXPORT_NOTE = `<div class="note"><b>导出的是 100% 原始参数。</b>
+相机端的 30/50/70/100 四档强度由 <code>tools/filter_strength.py</code> 在构建时自动生成，
+所以这里不需要、也不应该把强度预先烘焙进参数里。</div>`;
+
+document.getElementById('btnExportPreset').addEventListener('click',
+  () => openExportDrawer(exportCandidates(), '导出 profile'));
+
+document.getElementById('btnExportCube').addEventListener('click', () => {
+  openDrawer('导出 33³ .cube',
+    buildCube(),
+    `<div class="note"><b>33 点 3D LUT</b>，输入域为 Sony Standard / Rec.709（全范围），与
+    <code>tools/fit_luts.py:write_cube</code> 生成的 <code>SonyProxy_*.cube</code> 同构。
+    可交给 Resolve / Lightroom / Photoshop 使用，也可用三方 LUT 预览工具核对。</div>`,
+    '', (state.id || 'custom').replace(/[^\w.-]/g, '_') + '_SonyProxy.cube', 'text/plain');
+});
+
+/* 导入 */
+const IMPORT_NOTE = `<div class="note">支持三种粘贴内容：<br>
+① 整包 JSON（含 <code>presets[]</code>）→ 自动取第一条；<br>
+② 单条 preset 对象（含 <code>matrix</code> / <code>gamma</code>）；<br>
+③ 上游 smali 片段（含 <code>:array_xxx_matrix</code> 与 <code>:array_gamma_xxx</code> 两段 <code>.array-data</code>）。</div>`;
+document.getElementById('btnImport').addEventListener('click', () => {
+  openDrawer('导入参数', '', IMPORT_NOTE,
+    `<button id="btnDoImport" class="primary">解析并载入</button>
+     <span id="importMsg" style="font-size:11px;color:var(--muted)"></span>`,
+    'import.json', 'application/json');
+  document.getElementById('btnDoImport').addEventListener('click', () => {
+    const msg = document.getElementById('importMsg');
+    try {
+      const r = doImport(dText.value);
+      msg.style.color = '#3fb950';
+      msg.textContent = '✓ 已载入：' + r;
+    } catch (e) {
+      msg.style.color = '#f85149';
+      msg.textContent = '✗ ' + e.message;
+    }
+  });
+});
+
+function parseInts(text) {
+  text = text.replace(/#[^\n]*/g, '');
+  return text.trim().split(/\s+/).filter(Boolean).map(w => {
+    const neg = w.startsWith('-');
+    const h = neg ? w.slice(1) : w;
+    const v = parseInt(h.replace(/t$/, ''), 16);
+    if (!isFinite(v)) throw new Error('无法解析数值: ' + w);
+    return neg ? -v : v;
+  });
+}
+function doImport(text) {
+  text = (text || '').trim();
+  if (!text) throw new Error('内容为空');
+
+  // ③ smali
+  if (/:array_[\w]*matrix/.test(text)) {
+    const mm = text.match(/:array_[\w]*matrix\s*\n\s*\.array-data\s+4\s*\n([\s\S]*?)\.end array-data/);
+    const gm = text.match(/:array_gamma[\w]*\s*\n\s*\.array-data\s+1\s*\n([\s\S]*?)\.end array-data/);
+    if (!mm || !gm) throw new Error('找不到完整的 matrix/gamma 数组');
+    const mv = parseInts(mm[1]);
+    if (mv.length !== 9) throw new Error('矩阵应为 9 个值，实际 ' + mv.length);
+    const raw = parseInts(gm[1]);
+    if (raw.length !== 2048) throw new Error('gamma 应为 2048 个字节，实际 ' + raw.length);
+    const gv = new Array(1024);
+    for (let i = 0; i < 1024; i++) gv[i] = (raw[2 * i] & 255) | ((raw[2 * i + 1] & 255) << 8);
+    applyImported({ matrix: [[mv[0], mv[1], mv[2]], [mv[3], mv[4], mv[5]], [mv[6], mv[7], mv[8]]], gamma: gv });
+    return 'smali 参数（矩阵 9 值 + gamma 1024 点）';
+  }
+
+  // ①② JSON
+  let obj;
+  try { obj = JSON.parse(text); }
+  catch { throw new Error('既不是合法 JSON，也不含 smali 数组'); }
+  if (obj.presets && Array.isArray(obj.presets)) obj = obj.presets[0];
+  if (!obj.matrix || !obj.gamma) throw new Error('缺少 matrix 或 gamma 字段');
+  applyImported(obj);
+  return (obj.name || obj.id || '未命名') + '（' + obj.gamma.length + ' 点 gamma）';
+}
+function applyImported(obj) {
+  if (obj.id) { state.id = obj.id; document.getElementById('idInput').value = obj.id; }
+  if (obj.name) { state.name = obj.name; document.getElementById('nameInput').value = obj.name; }
+  state.matrix = obj.matrix.map(r => r.map(v => Math.round(v)));
+  const g = obj.gamma;
+  if (g.length !== 1024) throw new Error('gamma 长度应为 1024，实际 ' + g.length);
+  // 由 1024 点 gamma 反推控制点：取若干采样点作为 PCHIP 控制点
+  const xs = [0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1];
+  state.points = xs.map(x => {
+    const i = Math.round(x * 1023);
+    return { x, y: g[i] / 1023 };
+  });
+  state.points.sort((a, b) => a.x - b.x);
+  syncMatrixUI(); drawCurve(); schedule();
+}
+
+/* ============================================================
+   配方库（localStorage）
+   ============================================================ */
+const LIB_KEY = 'a6000-color-lab.library.v1';
+const libSelect = document.getElementById('libSelect');
+function libLoad() {
+  try { return JSON.parse(localStorage.getItem(LIB_KEY) || '[]'); } catch { return []; }
+}
+function libSaveAll(arr) { localStorage.setItem(LIB_KEY, JSON.stringify(arr)); }
+function libRefresh() {
+  const arr = libLoad();
+  libSelect.innerHTML = '<option value="">— 已存配方 —</option>';
+  arr.forEach((p, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `${p.name}  (${p.id})`;
+    libSelect.appendChild(o);
+  });
+}
+document.getElementById('btnLibSave').addEventListener('click', () => {
+  state.name = document.getElementById('nameInput').value.trim() || '未命名';
+  state.id = document.getElementById('idInput').value.trim() || 'custom-1';
+  const arr = libLoad();
+  const p = buildPresetObject();
+  const idx = arr.findIndex(q => q.id === p.id);
+  if (idx >= 0) arr[idx] = p; else arr.push(p);
+  libSaveAll(arr); libRefresh(); flash('已保存到本机配方库');
+});
+document.getElementById('btnLibLoad').addEventListener('click', () => {
+  const v = libSelect.value; if (v === '') return;
+  const p = libLoad()[+v];
+  if (p) { applyImported(p); flash('已载入 ' + p.name); }
+});
+document.getElementById('btnLibDel').addEventListener('click', () => {
+  const v = libSelect.value; if (v === '') return;
+  const arr = libLoad(); arr.splice(+v, 1); libSaveAll(arr); libRefresh();
+});
+document.getElementById('btnLibExport').addEventListener('click', () => {
+  const arr = libLoad();
+  if (!arr.length) { flash('配方库为空'); return; }
+  openExportDrawer(exportCandidates(), '导出 profile');
+});
+document.getElementById('nameInput').addEventListener('input', e => { state.name = e.target.value; });
+document.getElementById('idInput').addEventListener('input', e => { state.id = e.target.value; });
+
+/* ============================================================
+   初始化
+   ============================================================ */
+buildMatrixUI();
+syncMatrixUI();
+drawCurve();
+libRefresh();
+applyStrength(100);
+makeTestChart();
+</script>
+</body>
+</html>
