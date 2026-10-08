@@ -1,6 +1,6 @@
 ---
 name: camera-lut-studio
-description: "Design a custom colour LUT and inject it into a Sony PMCA camera APK, producing a signed, installable APK. Use when the user wants to 自定义相机色彩、制作自己的 LUT、将这个 LUT 导入这个 APK、把 LUT 写入相机应用并导出，或为 a6000、a5100、a6300、a6500、a7 系列、RX100、RX10、HX90 等 PlayMemories Camera Apps 机型添加自定义滤镜，或需要修改 FilmStudio / 胶片工坊 / Ricoh mod 这类机内调色 APK 的滤镜列表。Also use when asked to add, replace or rename a preset inside an already-built Film Studio APK, or to fit a .cube look LUT onto the matrix + gamma model the camera ISP can execute."
+description: "Design a custom colour LUT and inject it into a Sony PMCA camera APK, producing a signed, installable APK. Use when the user wants to 自定义相机色彩、制作自己的 LUT、将这个 LUT 导入这个 APK、把 LUT 写入相机应用并导出，或为 a6000、a5100、a6300、a6500、a7 系列、RX100、RX10、HX90 等 PlayMemories Camera Apps 机型添加自定义滤镜，或需要修改 FilmStudio / 胶片工坊 / Ricoh mod 这类机内调色 APK 的滤镜列表。Also use when asked to add, replace or rename a preset inside an already-built Film Studio APK, or to fit a .cube look LUT onto the matrix + gamma model the camera ISP can execute, or to convert a .cube (including a whole folder of them) into the preset JSON the designer and injector accept."
 agent_created: true
 ---
 
@@ -75,7 +75,24 @@ in their preview panel.
    duplicates. Injecting the same library onto its own output is then a pure re-sign:
    the byte size comes back unchanged, which is the tell that nothing was added.
 
-2. **Locate java and apktool.** apktool is a JAR and needs a Java runtime. The script
+2. **If the LUT is a `.cube`, convert it first.** `inject_lut.py` accepts a
+   `.cube` directly, but when the user wants to *see* or *reuse* the fitted numbers,
+   batch a folder, or check the fit before touching an APK, run the converter:
+
+   ```sh
+   python scripts/cube2preset.py <look.cube>                 # one file
+   python scripts/cube2preset.py --cubes <dir> --out <dir>   # a folder + QC table
+   ```
+
+   It emits the same preset JSON `inject_lut.py` consumes, and grades each fit
+   PASS/WARN/FAIL with a pure-channel guard that catches an axis-order mistake -
+   the one error that leaves every other number looking healthy. **Do not skip the
+   report**: a Log-conversion LUT cannot be represented by the camera model at all
+   and will fail, and the report is how you know that before shipping it. Files
+   that fail QC are not written unless `--allow-fail`. Full workflow, thresholds
+   and troubleshooting: `references/cube-to-preset.md`.
+
+3. **Locate java and apktool.** apktool is a JAR and needs a Java runtime. The script
    resolves both itself:
    - java: `JAVA_HOME` → `PATH` → `~/.workbuddy/binaries/java/versions/current` →
      common install paths
@@ -89,7 +106,7 @@ in their preview panel.
    (which skips the search entirely). Java is still required, and `openssl` must be on
    `PATH` for signing - both are checked by name and fail loudly if absent.
 
-3. **Run the injector.**
+4. **Run the injector.**
 
    ```sh
    python scripts/inject_lut.py --apk <built.apk> --lut <lut.json|look.cube> \
@@ -137,13 +154,13 @@ in their preview panel.
    Indices must stay contiguous, so deleting from the middle of a list is not a
    supported in-place operation.
 
-4. **Read the verification output.** The script re-decompiles the product, compares
+5. **Read the verification output.** The script re-decompiles the product, compares
    every stored array against `blend_profile` for all four strengths, and executes
    the patched lookup methods with a small interpreter. It exits non-zero if any
    check fails and prints `FAIL` lines. **Never hand over an APK whose verification
    failed** - report the failing check instead.
 
-5. **Report and hand over.** Give the output path, its SHA-256, the menu name, and
+6. **Report and hand over.** Give the output path, its SHA-256, the menu name, and
    the install command. Always include the uninstall-first warning: each locally
    signed build has its own key, so `adb install -r` fails against a build signed
    with a different key. See `references/install-to-camera.md`.
@@ -163,19 +180,40 @@ of them; do not hand-edit around them.
   `ET.Element(...)`, so they serialise in the same form as their siblings.
 - Sign with OpenSSL `smime -sign -noattr -binary`. Modern jarsigner adds CMS
   attributes that the camera's Android 4.1.2 runtime rejects.
+- **A `.cube` is red-fastest.** Loaded as `(n, n, n, 3)` the axes are
+  `[blue][green][red]`. Some real-world exports are written the other way round,
+  which silently swaps red and blue while looking plausible. `cube2preset.py`
+  detects the layout from the **shape of the fitted matrix** (a swap drives the
+  red row onto the blue column and the diagonal negative) - not from a
+  "pure red stays red" assumption, which is false for monochrome looks, and not
+  from comparing fit residuals, which are bit-identical under the swap.
+- **Do not tie the fitted matrix rows to sum to 1024.** Because the shared curve
+  is the *mean* of the look's neutral response, a row-sum tie would map a neutral
+  input to exactly `curve(v)` - mathematically erasing any deliberate grey tint.
+  Solve the rows independently (the default). Measured across 22 looks, tying was
+  worse on every one; on Sepia it was 8.33 vs 1.50 dE76. `--tie-rows` exists only
+  for the rare case where a guaranteed-grey grey outranks fidelity.
 
-Reasoning and failure modes: `references/color-model.md`.
+Reasoning and failure modes: `references/color-model.md`. LUT conversion:
+`references/cube-to-preset.md`.
 
 ## Files
 
 - `scripts/inject_lut.py` - the whole pipeline: decompile, inject, validate,
   rebuild, sign, verify. Self-contained; depends only on java, apktool, OpenSSL and
   (for `.cube` input) numpy.
+- `scripts/cube2preset.py` - convert `.cube` look LUTs to preset JSON, single file
+  or a whole folder, with a per-file QC table (fit error, colour difference,
+  axis-order check). Emits exactly the JSON `inject_lut.py` and the designer both
+  accept. Needs numpy.
 - `assets/lut-designer.html` - offline single-file visual designer. Exports the
   preset JSON this skill consumes, plus a 33³ `.cube`. Works on the user's own photo
   or its built-in test chart.
 - `references/color-model.md` - the ISP model, the preset schema, and the traps in
   detail.
+- `references/cube-to-preset.md` - how to turn a `.cube` into designer JSON: when
+  the fit is good enough, the QC thresholds, the red/blue axis trap, and a
+  troubleshooting table.
 - `references/lut-designer.md` - how to drive the designer.
 - `references/install-to-camera.md` - Wi-Fi ADB setup, install commands, and a
   troubleshooting table for `Communication error 100`, signature and dexopt errors.
