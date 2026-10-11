@@ -121,3 +121,58 @@ Structure checks cannot prove behaviour. Use three layers:
 
 The script runs all three after signing and refuses to report success otherwise.
 A build that fails verification must not be installed.
+
+## Where the preset arrays live depends on the build
+
+Two layouts exist in the wild. The *encoding* is identical in both - 9 ints per
+matrix at x1024, and one 1024-point gamma packed as int16 little-endian into a
+2048-byte `[B` - so only the storage location changes. `inject_lut.py` prints
+`Layout : flat` or `Layout : profile` and takes the right path.
+
+**flat (0.2.x).** The arrays are declared inside `RicohHook.smali` itself:
+
+```smali
+.field private static sFujimatrix3_70:[I
+.field private static sFujigamma3_70:[B
+```
+
+and populated by that file's `<clinit>`, which is why it can run to hundreds of
+thousands of lines. New presets are appended the same way.
+
+**profile (0.3.x).** The arrays moved out into one holder class per
+(preset, strength):
+
+```smali
+.class public final L.../RicohHook$Profile3_70;
+.field public static final sFujigamma3_70:[B
+.field public static final sFujimatrix3_70:[I
+```
+
+`RicohHook.smali` keeps only the logic and points at them:
+
+```smali
+sget-object v0, L.../RicohHook$Profile3_70;->sFujimatrix3_70:[I
+```
+
+so it shrinks to a few thousand lines. New presets are added by generating more
+holder classes - 4 per preset - plus the same dispatch branches as before.
+
+Practical notes:
+
+- Decompiling a profile build produces hundreds of extra `RicohHook$Profile*.smali`
+  files. That is normal, not corruption.
+- Generate each new holder class **from one already in that build** rather than
+  from a hand-written template, so the class shape matches. Read that template's
+  own index/strength from its filename: a sorted glob returns `Profile0_100`
+  before `Profile0_30`, and assuming `0_30` produces a class that declares
+  someone else's name, which apktool rejects with
+  `Class L...; has already been interned`.
+- The APK's zip **entry count does not change** when presets are appended - smali
+  compiles into `classes.dex`. Only the dex grows. A build whose byte size barely
+  moved is not a failed injection; check the menu and the arrays instead.
+- `--replace` is not supported on the profile layout yet; appending is.
+
+One more readback trap, for anyone writing their own verification: apktool emits
+`[B` elements as **signed** literals (`-0x7t`, range -128..127). Mask each byte
+with `& 255` before pairing two of them into an int16, or every gamma comparison
+comes out wrong and looks like a real failure.

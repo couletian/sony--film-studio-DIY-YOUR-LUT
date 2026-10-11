@@ -43,6 +43,15 @@ HOOK_NAME = 'RicohHook.smali'
 MENU_PATH = 'assets/MenuData.xml'
 MENU_PARENT = 'ApplicationTop'
 PRESET_FIELD = re.compile(r'^\.field private static sFujimatrix(\d+)_(\d+):\[I$', re.M)
+# 0.3.0+ moved the preset arrays out of RicohHook.smali into one holder class per
+# (preset, strength): RicohHook$Profile<N>_<strength>. RicohHook.smali then only
+# holds the logic and references them with `sget-object ... RicohHook$Profile3_70;`.
+# The arrays are byte-for-byte the same; only where they live changed.
+PROFILE_CLASS_RE = re.compile(r'RicohHook\$Profile(\d+)_(\d+);')
+PROFILE_FIELD_RE = re.compile(
+    r'^\.field public static final sFujimatrix(\d+)_(\d+):\[I$', re.M)
+HOOK_PKG = 'com/yuki/imaging/app/pictureeffectplus/shooting/camera'
+PROFILE_CLASS_PREFIX = 'L' + HOOK_PKG + '/RicohHook$Profile'
 # The skill ships apktool and the signing key under assets/, so it works on a machine
 # with neither installed. The home key wins when present, so an existing build's key
 # keeps signing later ones.
@@ -255,6 +264,87 @@ def patch_menu(path, presets):
 
 
 # --------------------------------------------------------------------------- #
+# layout detection (0.2.x flat fields vs 0.3.x profile holder classes)
+# --------------------------------------------------------------------------- #
+
+def detect_layout(hook_text):
+    """Return (layout, existing_indices) for a decompiled RicohHook.smali.
+
+    'flat'    - 0.2.x: `.field private static sFujimatrixN_MM:[I` inside RicohHook
+    'profile' - 0.3.x: arrays live in `RicohHook$ProfileN_MM` holder classes and
+                RicohHook only references them.
+    """
+    flat = sorted({int(m.group(1)) for m in PRESET_FIELD.finditer(hook_text)})
+    if flat:
+        return 'flat', flat
+    profile = sorted({int(m.group(1)) for m in PROFILE_CLASS_RE.finditer(hook_text)})
+    if profile:
+        return 'profile', profile
+    return None, []
+
+
+def field_owner(layout, index, strength):
+    """Which class holds sFujimatrix<index>_<strength> / sFujigamma<index>_<strength>."""
+    if layout == 'profile':
+        return '%s%d_%d;' % (PROFILE_CLASS_PREFIX, index, strength)
+    return HOOK_CLASS
+
+
+def profile_class_source(template, tpl_index, tpl_strength,
+                         index, strength, matrix, gamma_bytes):
+    """Build a RicohHook$ProfileN_MM.smali from a real one of the same build.
+
+    Reusing an existing file as the template guarantees the class shape, the
+    `.array-data` widths and the exact smali idioms match what the build already
+    contains - hand-writing a template risks a form apktool accepts but the
+    camera's dexopt does not.
+
+    The template's own (index, strength) must be passed in, not assumed: a
+    glob+sort returns Profile0_100 before Profile0_30, so hardcoding "0_30"
+    silently substitutes nothing and ships a duplicate class.
+    """
+    old_cls = 'Profile%d_%d' % (tpl_index, tpl_strength)
+    old_mat = 'sFujimatrix%d_%d' % (tpl_index, tpl_strength)
+    old_gam = 'sFujigamma%d_%d' % (tpl_index, tpl_strength)
+    for needle in (old_cls, old_mat, old_gam):
+        if needle not in template:
+            die('profile template does not contain %r; wrong template?' % needle)
+
+    new_cls = 'Profile%d_%d' % (index, strength)
+    new_mat = 'sFujimatrix%d_%d' % (index, strength)
+    new_gam = 'sFujigamma%d_%d' % (index, strength)
+
+    src = template.replace(old_cls, new_cls)
+    src = src.replace(old_mat, new_mat)
+    src = src.replace(old_gam, new_gam)
+
+    def swap(block_label, values, width):
+        nonlocal src
+        pattern = (r'(^\s*:' + block_label + r'\s*\n\s*\.array-data \d+\s*\n)'
+                   r'(.*?)(^\s*\.end array-data)')
+        lines = []
+        for value in values:
+            hexed = '-0x%x' % -value if value < 0 else '0x%x' % value
+            lines.append('        ' + hexed + ('t' if width == 1 else ''))
+        repl = r'\g<1>' + '\n'.join(lines) + '\n' + r'\g<3>'
+        src, n = re.subn(pattern, repl, src, count=1, flags=re.M | re.S)
+        if n != 1:
+            die('could not rewrite %s in the profile template' % block_label)
+
+    swap('array_0', matrix, 4)
+    swap('array_1', gamma_bytes, 1)
+
+    # The old identifiers must be gone and the new ones present, or the file
+    # declares someone else's class and apktool rejects the rebuild.
+    leftovers = [n for n in (old_cls, old_mat, old_gam) if n in src]
+    if leftovers:
+        die('profile template still references %s after substitution' % leftovers)
+    if new_cls not in src or new_mat not in src or new_gam not in src:
+        die('profile template is missing the new identifiers for %d_%d' % (index, strength))
+    return src
+
+
+# --------------------------------------------------------------------------- #
 # smali injection
 # --------------------------------------------------------------------------- #
 
@@ -283,21 +373,23 @@ def array_data_block(label, values, width):
     return out
 
 
-def strength_chain(kind, index, ret):
+def strength_chain(kind, index, ret, layout='flat'):
     """Each block ends with its own label, so a mismatch falls through to the next."""
     out = []
     for strength in STRENGTHS[:-1]:
         out += ['    const/16 v0, 0x%x' % strength,
                 '    if-ne v1, v0, :%s_s%d_%d' % (TAG, strength, index),
-                '    sget-object v0, %s->sFuji%s%d_%d:%s' % (HOOK_CLASS, kind, index, strength, ret),
+                '    sget-object v0, %s->sFuji%s%d_%d:%s'
+                % (field_owner(layout, index, strength), kind, index, strength, ret),
                 '    return-object v0',
                 '    :%s_s%d_%d' % (TAG, strength, index)]
-    out += ['    sget-object v0, %s->sFuji%s%d_%d:%s' % (HOOK_CLASS, kind, index, STRENGTHS[-1], ret),
+    out += ['    sget-object v0, %s->sFuji%s%d_%d:%s'
+            % (field_owner(layout, index, STRENGTHS[-1]), kind, index, STRENGTHS[-1], ret),
             '    return-object v0']
     return out
 
 
-def inject_lookup(text, signature, index, preset, kind):
+def inject_lookup(text, signature, index, preset, kind, layout='flat'):
     """Insert the new branch at the head of the lookup chain.
 
     It must NOT go just before the null-return label: the last built-in preset
@@ -322,7 +414,7 @@ def inject_lookup(text, signature, index, preset, kind):
              # inverts the test and hijacks every other preset id.
              '    if-eqz v0, :%s' % skip]
     if kind in ('matrix', 'gamma'):
-        block += strength_chain(kind, index, ret)
+        block += strength_chain(kind, index, ret, layout)
     else:
         block += ['    const-string v0, ' + quote(preset['value_' + kind]),
                   '    return-object v0']
@@ -377,40 +469,70 @@ def validate_reachable(text, name, presets):
                     % (name, signature, bypass[0]))
 
 
-def patch_hook(text, base_index, presets):
-    if '# static fields' not in text:
-        die('RicohHook.smali has no "# static fields" section')
-    fields = ['.field private static sFuji%s%d_%d:%s' % (kind, base_index + n, s, ret)
-              for n in range(len(presets)) for s in STRENGTHS
-              for kind, ret in (('matrix', '[I'), ('gamma', '[B'))]
-    text = text.replace('# static fields', '# static fields\n' + '\n\n'.join(fields) + '\n', 1)
+def patch_hook(text, base_index, presets, layout='flat', work=None, template=None):
+    missing = [p for p in presets if p.get('value_name') is None]
+    if missing:
+        die('patch_hook needs value_name/value_guide filled in first')
 
-    clinit = method_span(text, 'constructor <clinit>()V', modifier='static')
-    clinit_end = clinit.end()
-    statements, payloads = [], []
-    for n, preset in enumerate(presets):
-        index = base_index + n
-        for strength in STRENGTHS:
-            blend = blend_profile(preset, strength)
-            for kind, count, ret, values, width in [
-                    ('matrix', 9, '[I', sum(blend['matrix'], []), 4),
-                    ('gamma', 2048, '[B',
-                     [b for v in blend['gamma'] for b in (v & 255, v >> 8)], 1)]:
-                label = '%s_%s_%d_%d' % (TAG, kind, index, strength)
-                statements += ['    const/16 v0, 0x%x' % count,
-                               '    new-array v1, v0, %s' % ret,
-                               '    fill-array-data v1, :%s' % label,
-                               '    sput-object v1, %s->sFuji%s%d_%d:%s'
-                               % (HOOK_CLASS, kind, index, strength, ret)]
-                payloads += array_data_block(label, values, width)
-    statements.append('')
-    head = text[:clinit.start()]
-    body = text[clinit.start():clinit_end]
-    if body.count('    return-void') != 1:
-        die('<clinit> does not have exactly one return-void')
-    body = insert_before(body, '    return-void', '\n'.join(statements) + '\n')
-    body = insert_before(body, '.end method', '\n'.join(payloads) + '\n')
-    text = head + body + text[clinit_end:]
+    if layout == 'profile':
+        # 0.3.x: the payloads go into their own holder classes, one per
+        # (preset, strength). RicohHook.smali itself is untouched here - only the
+        # dispatch branches are added further down.
+        if work is None or template is None:
+            die('profile layout needs the work dir and a template smali')
+        target_dir = work / 'smali' / HOOK_PKG
+        if not target_dir.is_dir():
+            die('smali package dir not found: %s' % target_dir)
+        tpl_index, tpl_strength = template[0], template[1]
+        template_src = template[2]
+        written = []
+        for n, preset in enumerate(presets):
+            index = base_index + n
+            for strength in STRENGTHS:
+                blend = blend_profile(preset, strength)
+                matrix = sum(blend['matrix'], [])
+                gamma_bytes = [b for v in blend['gamma'] for b in (v & 255, v >> 8)]
+                path = target_dir / ('RicohHook$Profile%d_%d.smali' % (index, strength))
+                path.write_text(
+                    profile_class_source(template_src, tpl_index, tpl_strength,
+                                         index, strength, matrix, gamma_bytes),
+                    encoding='utf-8')
+                written.append(path.name)
+        note('wrote %d profile holder class(es)' % len(written))
+    else:
+        if '# static fields' not in text:
+            die('RicohHook.smali has no "# static fields" section')
+        fields = ['.field private static sFuji%s%d_%d:%s' % (kind, base_index + n, s, ret)
+                  for n in range(len(presets)) for s in STRENGTHS
+                  for kind, ret in (('matrix', '[I'), ('gamma', '[B'))]
+        text = text.replace('# static fields', '# static fields\n' + '\n\n'.join(fields) + '\n', 1)
+
+        clinit = method_span(text, 'constructor <clinit>()V', modifier='static')
+        clinit_end = clinit.end()
+        statements, payloads = [], []
+        for n, preset in enumerate(presets):
+            index = base_index + n
+            for strength in STRENGTHS:
+                blend = blend_profile(preset, strength)
+                for kind, count, ret, values, width in [
+                        ('matrix', 9, '[I', sum(blend['matrix'], []), 4),
+                        ('gamma', 2048, '[B',
+                         [b for v in blend['gamma'] for b in (v & 255, v >> 8)], 1)]:
+                    label = '%s_%s_%d_%d' % (TAG, kind, index, strength)
+                    statements += ['    const/16 v0, 0x%x' % count,
+                                   '    new-array v1, v0, %s' % ret,
+                                   '    fill-array-data v1, :%s' % label,
+                                   '    sput-object v1, %s->sFuji%s%d_%d:%s'
+                                   % (HOOK_CLASS, kind, index, strength, ret)]
+                    payloads += array_data_block(label, values, width)
+        statements.append('')
+        head = text[:clinit.start()]
+        body = text[clinit.start():clinit_end]
+        if body.count('    return-void') != 1:
+            die('<clinit> does not have exactly one return-void')
+        body = insert_before(body, '    return-void', '\n'.join(statements) + '\n')
+        body = insert_before(body, '.end method', '\n'.join(payloads) + '\n')
+        text = head + body + text[clinit_end:]
 
     for n, preset in enumerate(presets):
         index = base_index + n
@@ -418,7 +540,7 @@ def patch_hook(text, base_index, presets):
                                 ('getGammaBytes(Ljava/lang/String;)[B', 'gamma'),
                                 ('getFilterName(Ljava/lang/String;)Ljava/lang/String;', 'name'),
                                 ('getFilterGuide(Ljava/lang/String;)Ljava/lang/String;', 'guide')):
-            text = inject_lookup(text, signature, index, preset, kind)
+            text = inject_lookup(text, signature, index, preset, kind, layout)
 
     ids_method = method_span(text, 'getPresetIds()Ljava/util/List;')
     addition = '\n'.join(
@@ -618,14 +740,18 @@ def read_array(text, label, width, count):
     return values
 
 
-def read_fields(text):
-    links = re.findall(
-        r'fill-array-data v1, :(\w+)\s+sput-object v1, [^\n]+->(sFuji\w+):(\[[IB])', text)
+def read_fields(texts):
+    if isinstance(texts, str):
+        texts = [texts]
     result = {}
-    for label, name, kind in links:
-        data = read_array(text, label, 1 if kind == '[B' else 4, 2048 if kind == '[B' else 9)
-        # byte arrays store negatives as two's complement; mask before pairing them
-        result[name] = [v & 255 for v in data] if kind == '[B' else data
+    for text in texts:
+        links = re.findall(
+            r'fill-array-data v1, :(\w+)\s+sput-object v1, [^\n]+->(sFuji\w+):(\[[IB])', text)
+        for label, name, kind in links:
+            data = read_array(text, label, 1 if kind == '[B' else 4,
+                              2048 if kind == '[B' else 9)
+            # byte arrays store negatives as two's complement; mask before pairing them
+            result[name] = [v & 255 for v in data] if kind == '[B' else data
     return result
 
 
@@ -784,17 +910,38 @@ def main():
     if not hook_path or not layout_path:
         die('this does not look like a Film Studio APK (RicohHook/menu layout not found)')
     hook = hook_path.read_text(encoding='utf-8')
-    indices = sorted({int(m.group(1)) for m in PRESET_FIELD.finditer(hook)})
-    if not indices:
+    layout_kind, indices = detect_layout(hook)
+    if not layout_kind:
         die('no preset arrays found; is this a Film Studio build?')
     if indices != list(range(len(indices))):
         die('preset indices are not contiguous: %s' % indices)
+    print('Layout  : %s  (%d existing preset slot(s))' % (layout_kind, len(indices)))
+
+    template = None
+    if layout_kind == 'profile':
+        # Reuse a real holder class from this very build as the shape template, so
+        # the generated classes match the smali form the build already ships.
+        # Carry its own (index, strength) along: a sorted glob returns
+        # Profile0_100 before Profile0_30, so the caller must not assume "0_30".
+        candidates = sorted(hook_path.parent.glob('RicohHook$Profile*_*.smali'))
+        if not candidates:
+            die('profile layout detected but no RicohHook$Profile*_*.smali template found')
+        chosen = candidates[0]
+        m = re.match(r'RicohHook\$Profile(\d+)_(\d+)\.smali$', chosen.name)
+        if not m:
+            die('unexpected profile holder file name: %s' % chosen.name)
+        template = (int(m.group(1)), int(m.group(2)),
+                    chosen.read_text(encoding='utf-8'))
+        print('Template: %s' % chosen.name)
 
     menu_path = work / MENU_PATH
     placed = []          # (index, preset) pairs, in the order they land in the menu
     if args.replace:
         if len(presets) != 1:
             die('--replace takes a single preset; %d given' % len(presets))
+        if layout_kind == 'profile':
+            die('--replace is not supported on the 0.3.x profile-holder layout '
+                '(appending works; replacing a built-in slot does not yet)')
         ids_method = method_span(hook, 'getPresetIds()Ljava/util/List;').group()
         found = re.findall(r'const-string v\d+, "([^"]+)"', ids_method)
         if args.replace not in found:
@@ -813,7 +960,7 @@ def main():
         base = len(indices)
         print('\n[2/5] appending %d preset(s) at index %d..%d'
               % (len(presets), base, base + len(presets) - 1))
-        hook = patch_hook(hook, base, presets)
+        hook = patch_hook(hook, base, presets, layout_kind, work, template)
         placed = [(base + n, p) for n, p in enumerate(presets)]
         layout = layout_path.read_text(encoding='utf-8')
         layout_path.write_text(patch_icon_map(layout, presets), encoding='utf-8')
@@ -920,13 +1067,23 @@ def rename_menu_item(path, old_id, preset):
 
 
 def decompiled_hook(apk, java, apktool):
-    """Re-decompile the product APK and return its RicohHook.smali text."""
+    """Re-decompile the product APK.
+
+    Returns (hook_text, payload_texts): the RicohHook.smali source, plus the
+    sources of every other RicohHook*.smali. In 0.3.x builds that second list is
+    where the preset arrays live (the RicohHook$ProfileN_MM holder classes).
+    """
     work = Path(tempfile.mkdtemp(prefix='lut-verify-'))
     try:
         subprocess.run([java, '-jar', apktool, 'd', '-r', '-f', str(apk), '-o', str(work)],
                        check=True, stdout=subprocess.DEVNULL)
-        hook = next(iter(work.rglob(HOOK_NAME)))
-        return hook.read_text(encoding='utf-8')
+        sources = {}
+        for path in work.rglob('RicohHook*.smali'):
+            sources[path.name] = path.read_text(encoding='utf-8')
+        if HOOK_NAME not in sources:
+            die('RicohHook.smali missing from the rebuilt APK')
+        payloads = [src for name, src in sources.items() if name != HOOK_NAME]
+        return sources[HOOK_NAME], payloads
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -938,8 +1095,8 @@ def verify(apk, placed, java, apktool):
     if '\r\n' in menu:
         die('MenuData.xml has CRLF line endings; the shipped asset uses LF')
     lines = menu.split('\n')
-    text = decompiled_hook(apk, java, apktool)
-    fields = read_fields(text)
+    text, payloads = decompiled_hook(apk, java, apktool)
+    fields = read_fields([text] + payloads)
 
     checks = []
     for index, preset in placed:

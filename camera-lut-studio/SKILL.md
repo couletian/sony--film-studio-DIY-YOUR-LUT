@@ -193,6 +193,26 @@ of them; do not hand-edit around them.
   Solve the rows independently (the default). Measured across 22 looks, tying was
   worse on every one; on Sepia it was 8.33 vs 1.50 dE76. `--tie-rows` exists only
   for the rare case where a guaranteed-grey grey outranks fidelity.
+- **Film Studio ships two different preset-array layouts, and they are not
+  interchangeable.** `inject_lut.py` detects which one an APK uses and says so
+  (`Layout : flat` / `Layout : profile`), so normally you do not have to care -
+  but do not hand-patch across the two.
+  - **0.2.x ("flat")** - the arrays are `.field private static sFujimatrixN_MM:[I`
+    declared inside `RicohHook.smali` itself, which is why that file runs to
+    hundreds of thousands of lines.
+  - **0.3.x ("profile")** - the arrays moved into one holder class per
+    (preset, strength): `RicohHook$ProfileN_MM.smali`, referenced as
+    `sget-object v0, L.../RicohHook$ProfileN_MM;->sFujimatrixN_MM:[I`. RicohHook
+    is then only a few thousand lines. The *encoding* is unchanged (9 ints + a
+    2048-byte int16-LE gamma), so only the storage location differs.
+  - Under the profile layout the injector generates each new holder class **from a
+    real one already in that build**, so the class shape matches what the build
+    ships. `--replace` is not supported there yet; appending is.
+- **Never substitute a template's identifiers from an assumed name.** A sorted
+  glob returns `Profile0_100` before `Profile0_30`, so code that assumes `0_30`
+  substitutes nothing and silently emits a class declaring someone else's name -
+  apktool then fails with "has already been interned". Read the template's own
+  index/strength and assert the old names are gone and the new ones present.
 
 Reasoning and failure modes: `references/color-model.md`. LUT conversion:
 `references/cube-to-preset.md`.
@@ -201,7 +221,7 @@ Reasoning and failure modes: `references/color-model.md`. LUT conversion:
 
 - `scripts/inject_lut.py` - the whole pipeline: decompile, inject, validate,
   rebuild, sign, verify. Self-contained; depends only on java, apktool, OpenSSL and
-  (for `.cube` input) numpy.
+  (for `.cube` input) numpy. **Handles both preset-array layouts** - see below.
 - `scripts/cube2preset.py` - convert `.cube` look LUTs to preset JSON, single file
   or a whole folder, with a per-file QC table (fit error, colour difference,
   axis-order check). Emits exactly the JSON `inject_lut.py` and the designer both
